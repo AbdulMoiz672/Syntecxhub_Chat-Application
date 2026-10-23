@@ -35,6 +35,21 @@ npm start
 
 Open http://localhost:3001. Express serves the built React application and Socket.io from the same origin. Configure `PORT` and `MONGODB_URI` in the environment or root `.env`. Use a reverse proxy with WebSocket support and HTTPS when hosting.
 
+## Deploy from GitHub to Render
+
+This repository includes `render.yaml` for one Node.js web service serving the React build, API, and Socket.io together. Each push to `main` triggers a new deployment after the Blueprint is connected. Do not use GitHub Pages for this full-stack app.
+
+1. Create a Free cluster in [MongoDB Atlas](https://www.mongodb.com/docs/atlas/tutorial/deploy-free-tier-cluster/). Create a database user with read/write access to `relay`.
+2. In Atlas, choose **Connect → Drivers → Node.js**. Replace the password placeholder, URL-encoding special characters, and use `relay` as the database name: `mongodb+srv://USERNAME:PASSWORD@YOUR-CLUSTER.mongodb.net/relay?retryWrites=true&w=majority`.
+3. Open [Deploy to Render](https://render.com/deploy?repo=https://github.com/AbdulMoiz672/Syntecxhub_Chat-Application), sign in with GitHub, and select this repository. The Blueprint uses the Free plan, builds with `npm ci --include=dev && npm run build`, and starts with `npm start`.
+4. When prompted, set **MONGODB_URI** to the Atlas connection string. Store it only in Render's secret environment variables. Keep the local `.env` unchanged; its `127.0.0.1` address works only on your computer.
+5. Add the service's outbound IP ranges (shown in Render's Connect menu) to the Atlas Network Access list. Then deploy or retry deployment if the first attempt ran before network access was configured.
+6. Open the service's returned HTTPS URL. Verify account creation, login, and chat between two browser sessions. `/api/health` should return `{"ok":true}`.
+
+The Free service can sleep after inactivity, so the first request may take about a minute. Accounts and chat history persist in Atlas. Local accounts/history are not migrated automatically. Keep the service at one instance; multiple instances need a shared Socket.io adapter.
+
+References: [Render Node.js deployment](https://render.com/docs/deploy-node-express-app), [WebSockets](https://render.com/docs/websocket), [Free service limits](https://render.com/docs/free).
+
 ## Verification
 
 ```powershell
