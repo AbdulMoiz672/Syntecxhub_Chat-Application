@@ -1,4 +1,4 @@
-# Relay — real-time chat
+# Relay â€” real-time chat
 
 React, Express, Node.js, Socket.io, and PostgreSQL. Includes registration, login, rooms, persistent message history, typing indicators, and online members.
 
@@ -17,6 +17,12 @@ Open http://localhost:5173. Leave `DATABASE_URL` empty in `.env` to use local em
 For a regular PostgreSQL server, set `DATABASE_URL` to its connection string. The optional `docker compose up -d` service uses `postgresql://relay:relay_local_only@127.0.0.1:5432/relay`. Those example Docker credentials are for local development only. With a supplied URL, the app uses the standard `pg` driver. SSL can be configured through the connection string (for example `sslmode=require` when required by the provider).
 
 ## Deploy from GitHub
+
+### GitHub Pages interface preview
+
+The React interface is published at https://abdulmoiz672.github.io/Syntecxhub_Chat-Application/ by `.github/workflows/pages.yml` on each push to `main`. The workflow builds the correct repository asset path and uploads only `client/dist`. Pages shows the login and registration forms with a preview notice; submitting accounts and live chat are unavailable there because GitHub Pages does not run the Node.js server or PostgreSQL. Local and Render builds continue to use the full backend. Use the Render deployment below for a working public chat app.
+
+### Full application on Render
 
 [Deploy to Render](https://render.com/deploy?repo=https://github.com/AbdulMoiz672/Syntecxhub_Chat-Application)
 
