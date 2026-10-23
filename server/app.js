@@ -1,23 +1,16 @@
 import express from 'express';
 import { createServer } from 'node:http';
 import { Server } from 'socket.io';
-import mongoose from 'mongoose';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { installAuth, findSession, User, Session } from './auth.js';
+import { installAuth, findSession } from './auth.js';
 
-const roomSchema = new mongoose.Schema({ name: { type: String, required: true, unique: true }, description: String });
-const messageSchema = new mongoose.Schema({ roomId: { type: mongoose.Schema.Types.ObjectId, ref: 'Room', required: true }, username: String, clientId: String, text: String }, { timestamps: true });
-messageSchema.index({ roomId: 1, createdAt: -1, _id: -1 });
-export const Room = mongoose.model('Room', roomSchema);
-export const Message = mongoose.model('Message', messageSchema);
 const clean = (value, max) => typeof value === 'string' ? value.trim().slice(0, max) : '';
-const validId = value => typeof value === 'string' && /^[a-f\d]{24}$/i.test(value);
+const validId = value => typeof value === 'string' && /^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i.test(value);
 
-export async function createApp() {
-  await Promise.all([User.init(), Session.init()]);
+export async function createApp({ store }) {
   for (const [name, description] of [['general', 'The place for everything. Say hello.'], ['design', 'Ideas, inspiration, and thoughtful feedback.'], ['development', 'Build things together.'], ['random', 'A little room for the unexpected.']]) {
-    await Room.updateOne({ name }, { $setOnInsert: { name, description } }, { upsert: true });
+    await store.seedRoom(name, description);
   }
   const app = express();
   app.use(express.json({ limit: '16kb' }));
@@ -37,19 +30,18 @@ export async function createApp() {
   installAuth(app, sessionId => {
     io.to(`session:${sessionId}`).emit('auth:expired');
     io.in(`session:${sessionId}`).disconnectSockets(true);
-  });
-  app.get('/api/health', (req, res) => res.status(mongoose.connection.readyState === 1 ? 200 : 503).json({ ok: mongoose.connection.readyState === 1 }));
-  app.get('/api/rooms', async (req, res) => res.json(await Room.find().sort({ name: 1 }).lean()));
+  }, store);
+  app.get('/api/health', async (req, res) => { try { await store.health(); res.json({ ok: true }); } catch { res.status(503).json({ ok: false }); } });
+  app.get('/api/rooms', async (req, res) => res.json(await store.rooms()));
   app.post('/api/rooms', async (req, res) => {
     const name = clean(req.body.name, 40).toLowerCase();
     if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(name)) return res.status(400).json({ error: 'Use 1–40 lowercase letters, numbers, or hyphens.' });
-    try { res.status(201).json(await Room.create({ name, description: clean(req.body.description, 160) })); }
-    catch (error) { if (error.code === 11000) return res.status(409).json({ error: 'A room with this name already exists.' }); throw error; }
+    try { res.status(201).json(await store.createRoom(name, clean(req.body.description, 160))); }
+    catch (error) { if (error.code === '23505') return res.status(409).json({ error: 'A room with this name already exists.' }); throw error; }
   });
   app.get('/api/rooms/:roomId/messages', async (req, res) => {
-    if (!validId(req.params.roomId) || !await Room.exists({ _id: req.params.roomId })) return res.status(404).json({ error: 'Room not found.' });
-    const messages = await Message.find({ roomId: req.params.roomId }).sort({ createdAt: -1, _id: -1 }).limit(100).lean();
-    res.json(messages.reverse());
+    if (!validId(req.params.roomId) || !await store.hasRoom(req.params.roomId)) return res.status(404).json({ error: 'Room not found.' });
+    res.json(await store.messages(req.params.roomId));
   });
   app.use('/api', (req, res) => res.status(404).json({ error: 'API route not found.' }));
   const dist = fileURLToPath(new URL('../client/dist', import.meta.url));
@@ -58,7 +50,7 @@ export async function createApp() {
   app.use((err, req, res, next) => { console.error(err.message); res.status(err.status || 500).json({ error: err.status === 400 ? 'Invalid request body.' : 'Unable to complete request.' }); });
   io.use(async (socket, next) => {
     try {
-      const session = await findSession(socket.request.headers.cookie);
+      const session = await findSession(socket.request.headers.cookie, store);
       if (!session) return next(new Error('Authentication required.'));
       socket.data.user = session.userId;
       socket.data.sessionId = String(session._id);
@@ -86,7 +78,7 @@ export async function createApp() {
       try {
         const { roomId } = payload || {};
         const username = socket.data.user.name, clientId = String(socket.data.user._id);
-        if (!validId(roomId) || !username || !clientId || !await Room.exists({ _id: roomId })) return ack({ ok: false, error: 'Choose a valid room and display name.' });
+        if (!validId(roomId) || !username || !clientId || !await store.hasRoom(roomId)) return ack({ ok: false, error: 'Choose a valid room and display name.' });
         const old = socket.data.roomId;
         if (old) { await socket.leave(old); clearTyping(socket, old); members(old); }
         Object.assign(socket.data, { roomId, username, clientId });
@@ -102,7 +94,7 @@ export async function createApp() {
       if (Date.now() - lastSend < 300) return ack({ ok: false, error: 'Please wait a moment before sending again.' });
       lastSend = Date.now();
       try {
-        const message = (await Message.create({ roomId, username, clientId, text })).toObject();
+        const message = await store.createMessage({ roomId, username, clientId, text });
         io.to(roomId).emit('message:new', message); clearTyping(socket, roomId); ack({ ok: true, message });
       } catch { ack({ ok: false, error: 'Message could not be saved. Please try again.' }); }
     });

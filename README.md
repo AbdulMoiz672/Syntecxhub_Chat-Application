@@ -1,30 +1,33 @@
-# Relay — MERN real-time chat
+# Relay � real-time chat
 
-React + Vite interface, Express/Node API, Socket.io room messaging, and MongoDB persistence through Mongoose.
+React, Express, Node.js, Socket.io, and PostgreSQL. Includes registration, login, rooms, persistent message history, typing indicators, and online members.
 
 ## Run locally
 
-Requires Node.js 20.19+ (or 22.12+) and a running MongoDB instance.
+Requires Node.js 22.12+ (Node.js 24 recommended).
 
 ```powershell
 npm install
-Copy-Item .env.example .env
-# Set MONGODB_URI in .env for your local MongoDB or Atlas cluster.
+# Copy .env.example to .env only if .env does not already exist.
 npm run dev
 ```
 
-Open http://localhost:5173, create an account, join a room, and chat. Use a private browser window for a second account. The API runs on port 3001; Vite proxies API and Socket.io traffic. Messages are saved before broadcasting, and the latest 100 messages load when joining a room.
+Open http://localhost:5173. Leave `DATABASE_URL` empty in `.env` to use local embedded PostgreSQL (PGlite). Data persists in `.data/postgres`; no separate database installation is required. Run only one local server against this directory. The API runs on port 3001.
 
-This project uses a dedicated MongoDB instance on port **27018**, with database `relay`. In MongoDB Compass or the VS Code MongoDB extension, connect using `mongodb://127.0.0.1:27018/relay` and replace the old Chat-Application connection. Databases from your other MongoDB instance on port 27017, such as `contact_manager`, remain there. Existing chat history on port 27017 is not migrated automatically.
+For a regular PostgreSQL server, set `DATABASE_URL` to its connection string. The optional `docker compose up -d` service uses `postgresql://relay:relay_local_only@127.0.0.1:5432/relay`. Those example Docker credentials are for local development only. With a supplied URL, the app uses the standard `pg` driver. SSL can be configured through the connection string (for example `sslmode=require` when required by the provider).
 
-With Docker installed, you can start the included MongoDB service using `docker compose up -d` instead of installing MongoDB locally. Its data persists in a dedicated named Docker volume. Choose either Docker or the local command below, since both use port 27018.
+## Deploy from GitHub
 
-If MongoDB is installed but not running, start it separately with a persistent data directory:
+[Deploy to Render](https://render.com/deploy?repo=https://github.com/AbdulMoiz672/Syntecxhub_Chat-Application)
 
-```powershell
-New-Item -ItemType Directory -Force .data/relay-mongo
-mongod --dbpath .data/relay-mongo --bind_ip 127.0.0.1 --port 27018
-```
+1. Sign in to Render with GitHub and select this repository as a new Blueprint.
+2. Review the included `render.yaml`. It creates one Node.js web service and one PostgreSQL database in the same region. Render supplies the private `DATABASE_URL` automatically; no Atlas account or manually copied database password is needed.
+3. Deploy, then open the HTTPS `.onrender.com` URL shown by Render. This serves the full frontend and Socket.io backend together. GitHub Pages cannot host the full application.
+4. Check `/api/health` returns `{"ok":true}` and test registration, login, and messaging using two browser sessions.
+
+The Blueprint selects Free plans. **Render's Free PostgreSQL database expires after 30 days** and has no backups. Upgrade it or export/move the data before expiry if you need ongoing hosting. The Free web service sleeps after inactivity and can take about a minute to wake. See [Render limits](https://render.com/docs/free).
+
+Pushes to `main` automatically redeploy a connected Blueprint. Keep one application instance; multiple instances require a shared Socket.io adapter and rate limiter. Production startup requires `DATABASE_URL` and never falls back to an ephemeral local database. `NODE_ENV=production` enables Secure session cookies, so use HTTPS. Database tables and indexes are initialized automatically.
 
 ## Production build
 
@@ -33,44 +36,30 @@ npm run build
 npm start
 ```
 
-Open http://localhost:3001. Express serves the built React application and Socket.io from the same origin. Configure `PORT` and `MONGODB_URI` in the environment or root `.env`. Use a reverse proxy with WebSocket support and HTTPS when hosting.
+Express serves the React build on http://localhost:3001. Hosting platforms supply `PORT`; local development defaults to 3001. Keep `.env` private.
 
-## Deploy from GitHub to Render
-
-This repository includes `render.yaml` for one Node.js web service serving the React build, API, and Socket.io together. Each push to `main` triggers a new deployment after the Blueprint is connected. Do not use GitHub Pages for this full-stack app.
-
-1. Create a Free cluster in [MongoDB Atlas](https://www.mongodb.com/docs/atlas/tutorial/deploy-free-tier-cluster/). Create a database user with read/write access to `relay`.
-2. In Atlas, choose **Connect → Drivers → Node.js**. Replace the password placeholder, URL-encoding special characters, and use `relay` as the database name: `mongodb+srv://USERNAME:PASSWORD@YOUR-CLUSTER.mongodb.net/relay?retryWrites=true&w=majority`.
-3. Open [Deploy to Render](https://render.com/deploy?repo=https://github.com/AbdulMoiz672/Syntecxhub_Chat-Application), sign in with GitHub, and select this repository. The Blueprint uses the Free plan, builds with `npm ci --include=dev && npm run build`, and starts with `npm start`.
-4. When prompted, set **MONGODB_URI** to the Atlas connection string. Store it only in Render's secret environment variables. Keep the local `.env` unchanged; its `127.0.0.1` address works only on your computer.
-5. Add the service's outbound IP ranges (shown in Render's Connect menu) to the Atlas Network Access list. Then deploy or retry deployment if the first attempt ran before network access was configured.
-6. Open the service's returned HTTPS URL. Verify account creation, login, and chat between two browser sessions. `/api/health` should return `{"ok":true}`.
-
-The Free service can sleep after inactivity, so the first request may take about a minute. Accounts and chat history persist in Atlas. Local accounts/history are not migrated automatically. Keep the service at one instance; multiple instances need a shared Socket.io adapter.
-
-References: [Render Node.js deployment](https://render.com/docs/deploy-node-express-app), [WebSockets](https://render.com/docs/websocket), [Free service limits](https://render.com/docs/free).
-
-## Verification
+## Tests
 
 ```powershell
 npm test
 ```
 
-Integration tests use a temporary MongoDB instance and real Socket.io clients to verify delivery, room isolation, validation, presence, reconnect, and history. The first run downloads a MongoDB binary. To use an installed binary without a download, set `MONGOD_BINARY` to the absolute path of `mongod.exe` before running tests. Test data is isolated from your configured application database.
+Integration tests use actual PostgreSQL via PGlite and real Socket.io clients. They cover account registration, login/logout, authenticated messaging, validation, room isolation, presence, reconnection, and saved history. No external database or binary download is required.
 
-## Scope
+## Database change
 
-Registration and login use an email address and password. Passwords are hashed with salted Node.js scrypt. Sessions last seven days, are stored in MongoDB, and use HttpOnly, SameSite cookies; logout revokes the session and disconnects its sockets. Set `NODE_ENV=production` when hosting over HTTPS to enable Secure cookies. Authentication is required for room APIs and Socket.io; message identity comes from the account. Existing guest chat history remains visible to signed-in users. Email verification and password reset are not included.
+This project now uses PostgreSQL instead of MongoDB. Existing MongoDB files and Docker volumes are not deleted, but old MongoDB accounts and messages are not imported automatically. Register a new account in the PostgreSQL-backed app. The MongoDB connection variable is no longer used.
 
-Rooms and histories are shared with all signed-in users. Presence reflects connected browser tabs. This implementation runs one Node server; multiple instances need a shared Socket.io adapter, shared presence, and shared login rate limiting. History is capped at the latest 100 messages per room in the interface; older records remain in MongoDB.
+## Scope and API
 
-## API and events
+Passwords use salted scrypt hashes. Seven-day sessions use HttpOnly, SameSite cookies, and logout revokes the session and its sockets. Rooms and histories are shared with signed-in users. The interface loads the latest 100 messages per room; older messages remain stored. Password reset and email verification are not included.
 
+- `POST /api/auth/register` (`name`, `email`, `password`)
+- `POST /api/auth/login` (`email`, `password`), `POST /api/auth/logout` (JSON `{}`)
+- `GET /api/auth/me`, `GET /api/health`
 - `GET /api/rooms`, `POST /api/rooms` (`name`, `description`)
-- `POST /api/auth/register` (`name`, `email`, `password`), `POST /api/auth/login` (`email`, `password`)
-- `GET /api/auth/me`, `POST /api/auth/logout` (JSON `{}`)
-- `GET /api/rooms/:roomId/messages`, `GET /api/health`
-- Client events: `join-room`, `message:send`, `typing`
-- Server events: `message:new`, `room:members`, `typing:update`
+- `GET /api/rooms/:roomId/messages`
+- Socket client events: `join-room`, `message:send`, `typing`
+- Socket server events: `message:new`, `room:members`, `typing:update`
 
-Implementation references: [Socket.io rooms](https://socket.io/docs/v4/rooms/) and [Mongoose connections](https://mongoosejs.com/docs/connections.html).
+References: [Render Node.js hosting](https://render.com/docs/deploy-node-express-app), [Socket.io](https://socket.io/docs/v4/rooms/), [PGlite](https://pglite.dev/docs/).
